@@ -8,9 +8,9 @@ import os
 
 # Load envs
 load_dotenv()
-TIKTOK_USERNAME = os.getenv("TIKTOK_USERNAME")
+TIKTOK_USERNAME = os.getenv("TIKTOK_USERNAME", "@TheHollowPianist")
 # discord channel webhook
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "URL_NOT_SET")
 
 # create TikTokLive client
 tt_client = TikTokLiveClient(unique_id=TIKTOK_USERNAME)

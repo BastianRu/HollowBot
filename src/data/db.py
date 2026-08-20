@@ -88,9 +88,9 @@ async def update_daily_channel_metrics(
 # function to update the daily metrics for bot performance
 async def update_daily_bot_metrics(
     discord_commands_increment=0,
-    average_cpu_usage_increment=0.0,
-    average_memory_usage_increment=0.0,
-    uptime_hours_increment=0.0
+    average_cpu_usage=0.0,
+    average_memory_usage=0.0,
+    uptime_hours=0.0
     ):
     today = datetime.date.today().isoformat() # generates "2026-08-18"
     try:
@@ -108,9 +108,9 @@ async def update_daily_bot_metrics(
                 uptime_hours = uptime_hours + ?
                 WHERE date = ?
             """, (discord_commands_increment, 
-                average_cpu_usage_increment, 
-                average_memory_usage_increment, 
-                uptime_hours_increment, 
+                average_cpu_usage, 
+                average_memory_usage, 
+                uptime_hours, 
                 today))
             await db.commit()
     except Exception as e:
@@ -176,6 +176,29 @@ async def get_bot_metrics(date: str | None = None):
         print(f"Error fetching daily bot metrics: {e}")
         return None
 
+async def get_command_logs(date: str | None = None):
+    date = date or datetime.date.today().isoformat()
+    try:
+        async with aiosqlite.connect("bot_metrics.db") as db:
+            async with db.execute("""
+                SELECT * FROM bot_commands WHERE date = ?
+            """, (date,)) as cursor:
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        "id": row[0],
+                        "date": row[1],
+                        "command": row[2],
+                        "author": row[3],
+                        "channel": row[4],
+                        "timestamp": row[5],
+                        "success": bool(row[6])
+                    }
+                    for row in rows
+                ]
+    except Exception as e:
+        print(f"Error fetching command logs: {e}")
+        return []
 
 async def restart_table_bot_commands():
     try: 
