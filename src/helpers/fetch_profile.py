@@ -1,113 +1,101 @@
 import json
 import time
-from playwright.async_api import async_playwright
+import httpx
+from pathlib import Path
+import os
+from dotenv import load_dotenv
 
-_browser_instance = None
-_playwright_obj = None
-_profile_cache = {}
-CACHE_TTL = 600
+load_dotenv() 
 
-async def get_browser():
-    global _browser_instance, _playwright_obj
-    if _browser_instance is None or not _browser_instance.is_connected():
-        _playwright_obj = await async_playwright().start()
-        _browser_instance = await _playwright_obj.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled", # Oculta la automatización de Blink
-            ]
-        )
-    return _browser_instance
+RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "NO_KEY_FOUND")
+RAPIDAPI_HOST = "tiktok-api23.p.rapidapi.com"
 
-async def get_user_profile_info_playwright(username: str):
+CACHE_FILE = Path("src/data/tiktok_cache.json")
+CACHE_TTL = 8 * 60 * 60  # 8 hours in seconds
+
+def _load_cache() -> dict:
+    if CACHE_FILE.exists():
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def _save_cache(cache_data: dict):
+    try:
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache_data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[Warn] could not save cache:: {e}")
+
+async def get_user_profile_info_rapidapi(username: str, force_refresh: bool = False) -> dict | None:
     clean_username = username.lstrip("@").lower()
     now = time.time()
+    
+    _profile_cache = _load_cache()
 
+    # 1. Comprobar Caché Local (6 horas)
     if clean_username in _profile_cache:
-        data, timestamp = _profile_cache[clean_username]
-        if now - timestamp < CACHE_TTL:
+        cached_item = _profile_cache[clean_username]
+        data = cached_item.get("data")
+        timestamp = cached_item.get("timestamp", 0)
+
+        if now - timestamp < CACHE_TTL and not force_refresh:
+            remaining_min = int((CACHE_TTL - (now - timestamp)) / 60)
+            print(f"[Cache] fetching @{clean_username} ({remaining_min} min remaining)")
             return data
 
-    browser = await get_browser()
+    print(f"[RapidAPI] fetching @{clean_username}...")
+    url = f"https://{RAPIDAPI_HOST}/api/user/info"
     
-    # Creamos un contexto con argumentos stealth inyectados a nivel de navegador
-    context = await browser.new_context(
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        viewport={"width": 1280, "height": 720},
-        locale="es-ES",
-        timezone_id="America/Bogota"
-    )
+    headers = {
+        "x-rapidapi-key": RAPIDAPI_KEY,
+        "x-rapidapi-host": RAPIDAPI_HOST
+    }
+    
+    params = {"uniqueId": clean_username}
 
-    # Inyección de Scripts Anti-Detection antes de cargar cualquier script de TikTok
-    await context.add_init_script("""
-        // Sobrescribir navigator.webdriver
-        Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined
-        });
-        
-        // Simular lenguajes del navegador
-        Object.defineProperty(navigator, 'languages', {
-            get: () => ['es-ES', 'es', 'en-US', 'en']
-        });
-
-        // Simular Chrome runtime
-        window.chrome = {
-            runtime: {}
-        };
-    """)
-
-    page = await context.new_page()
-
-    # Bloquear recursos pesados para ahorrar ancho de banda y RAM
-    await page.route("**/*.{png,jpg,jpeg,svg,webp,css,woff,woff2}", lambda route: route.abort())
-
-    try:
-        url = f"https://www.tiktok.com/@{clean_username}"
-        await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-
-        script_content = await page.evaluate('''() => {
-            const el = document.getElementById("__UNIVERSAL_DATA_FOR_REHYDRATION__");
-            return el ? el.textContent : null;
-        }''')
-
-        await page.close()
-        await context.close()
-
-        if not script_content:
-            print(f"No se encontró el script en el DOM de @{clean_username}")
-            return None
-
-        data = json.loads(script_content)
-        user_detail = data.get("__DEFAULT_SCOPE__", {}).get("webapp.user-detail", {})
-        user_info = user_detail.get("userInfo", {}).get("user", {})
-        stats = user_detail.get("userInfo", {}).get("stats", {})
-
-        if not user_info:
-            return None
-
-        result = {
-            "username": clean_username,
-            "nickname": user_info.get("nickname", clean_username),
-            "bio": user_info.get("signature", "Sin biografía."),
-            "verified": user_info.get("verified", False),
-            "avatar_url": user_info.get("avatarLarger") or user_info.get("avatarMedium") or "",
-            "followers": stats.get("followerCount", 0),
-            "following": stats.get("followingCount", 0),
-            "likes": stats.get("heartCount", 0),
-            "video_count": stats.get("videoCount", 0),
-        }
-
-        _profile_cache[clean_username] = (result, now)
-        return result
-
-    except Exception as e:
-        print(f"Error scraping @{clean_username}: {e}")
+    async with httpx.AsyncClient(timeout=15.0) as client:
         try:
-            await page.close()
-            await context.close()
-        except Exception:
-            pass
-        return None
+            response = await client.get(url, headers=headers, params=params)
+
+            if response.status_code != 200:
+                print(f"[RapidAPI Error {response.status_code}] HTTP request failed")
+                return _profile_cache.get(clean_username, {}).get("data")
+
+            data = response.json()
+            user_info = data.get("userInfo", {})
+            user = user_info.get("user", {})
+            stats = user_info.get("stats", {})
+
+            if not user:
+                print(f"[Warn] @{clean_username} not found or empty.")
+                return _profile_cache.get(clean_username, {}).get("data")
+
+            result = {
+                "sec_uid": user.get("secUid", ""),            # unmutable ID
+                "username": user.get("uniqueId", clean_username),
+                "nickname": user.get("nickname", clean_username),
+                "bio": user.get("signature", "Sin biografía."),
+                "bio_link": user.get("bioLink", {}).get("link", ""), # external link in bio
+                "verified": user.get("verified", False),
+                "is_private": user.get("privateAccount", False),     # private account
+                "avatar_url": user.get("avatarLarger") or user.get("avatarMedium") or user.get("avatarThumb", ""),
+                "followers": stats.get("followerCount", 0),
+                "following": stats.get("followingCount", 0),
+                "likes": stats.get("heartCount", 0),
+                "video_count": stats.get("videoCount", 0),
+            }
+
+            _profile_cache[clean_username] = {
+                "data": result,
+                "timestamp": now
+            }
+            _save_cache(_profile_cache)
+
+            return result
+
+        except Exception as e:
+            print(f"[Exception] while fetching @{clean_username}: {e}")
+            return _profile_cache.get(clean_username, {}).get("data")
