@@ -2,7 +2,7 @@ from datetime import datetime
 import typing
 from typing import Any, Dict
 from TikTokLive.events import CommentEvent, ConnectEvent, DisconnectEvent
-from src.helpers.fetch_profile import get_user_profile_info_playwright
+from src.helpers.fetch_profile import get_user_profile_info_rapidapi
 from TikTokLive import TikTokLiveClient
 from src.data.db import (get_channel_metrics, 
                          init_db, update_daily_channel_metrics, 
@@ -71,7 +71,7 @@ def split_embed_description(text: str, limit: int = 4000) -> list[str]:
 async def update_metrics_loop():
     try:
         #Update channel metrics
-        pf_data = await get_user_profile_info_playwright(TIKTOK_USERNAME) # Fetch TikTok channel info
+        pf_data = await get_user_profile_info_rapidapi(TIKTOK_USERNAME) # Fetch TikTok channel info
         pf_data = typing.cast(Dict[str, Any], pf_data)
 
         likes = pf_data.get("likes", 0) or 0
@@ -111,8 +111,15 @@ async def on_ready():
     if not monitor_system_usage.is_running():
         monitor_system_usage.start()  # Start the system usage monitoring loop (bot metrics)
 
+@bot.command(
+        brief="Muestra la latencia del bot e informacion del mismo.",
+        help="""Muestra la latencia del bot en milisegundos y la informacion de la aplicacion, 
+            incluyendo el ID y el nombre de la app.  
 
-@bot.command()
+            Parametros:
+                - Este comando no recibe argumentos
+            """
+)
 async def ping(ctx):
     try:
         # ctx (Context) cotains all the tracking information
@@ -136,7 +143,7 @@ async def ping(ctx):
 
         await ctx.send(embed=embed)
 
-        # update bd stats (audit logs)
+        # update bd stats and audit logs
         await update_daily_bot_metrics(discord_commands_increment=1,)
         await log_command_usage("ping", ctx.author.name, ctx.channel.name, True)
 
@@ -144,16 +151,24 @@ async def ping(ctx):
         print(f"Failed at 'ping': {e}")
         await log_command_usage("ping", ctx.author.name, ctx.channel.name, False)
 
-@bot.command()
+@bot.command(
+    brief="Muestra informacion general del bot y sus comandos.",
+    help="""Muestra la fecha de inicio del desarrollo, ID de la app, 
+            nombre, prefijo de comando actual y una lista de comandos con descripciones breves  
+    
+            Parametros:
+                - Este comando no recibe argumentos
+            """
+)
 async def info(ctx):
     try:
         async with ctx.typing():
             app_info = await bot.application_info()
 
-        command_list = "".join([f"- `{cmd.name}` \n" for cmd in bot.commands])
+        command_list = "".join([f"- `{cmd.name}`: {cmd.brief} \n" for cmd in bot.commands])
 
         description_text = (
-            f"Fecha de Nacimiento: `17 de Agosto de 2026` \n"
+            f"Fecha de inicio del desarrollo: `17 de Agosto de 2026` \n"
             f"ID de la aplicacion: `{app_info.id}`\n"
             f"Nombre de la app: `{app_info.name}`\n"
             f"Prefijo de comando actual: `{bot.command_prefix}` \n\n"
@@ -176,9 +191,31 @@ async def info(ctx):
         print(f"Exception at 'info': {e}")
         await log_command_usage("info", ctx.author.name, ctx.channel.name, False)
 
-@bot.command()
+@bot.command(
+        brief="Cambia el estado y actividad del bot personalizados.",
+        help="""Actualiza el estado y actividad del bot segun los parametros que se le pasen.
+         
+                Parametros:
+                    1. Actividad: la actividad que se le asigna al bot.
+
+                        - Solo puede tomar los valores: 
+                        "watching" | "playing" | "listening" | "competing"
+                        o 
+                        "ver" | "jugar" | "escuchar" | "competir"
+
+                        - Ejemplo: hw change_status watching TheHollowPianist
+
+                    2. Estado: el texto que se va a mostrar debajo del nombre del bot.
+
+                        - Puede tomar cualquier texto. Para textos con espacios es OBLIGATORIO
+                          el uso de comillas como se muestra acontinuacion:
+
+                        - Ejemplo: hw change_status watching "TheHollowPianist on Tik Tok"
+
+                ------------------------------ para desarrolladores --------------------------"""
+)
 #@commands.has_permissions(administrator=True)
-async def change_status(ctx, state: str, text: str):
+async def change_status(ctx, state: str, text: str = ""):
     # state could be "watching" | "playing" | "listening" | "competing" 
     status_map = {
         "playing": discord.ActivityType.playing,
@@ -196,7 +233,10 @@ async def change_status(ctx, state: str, text: str):
 
     state_key = state.lower()
     if state_key not in status_map:
-        await ctx.send("❌ **Estado no valido. Usa: playing, watching, listening o competing.**")
+        await ctx.send("❌ **Actividad no valida. Usa: playing, watching, listening o competing.**")
+        return
+    if text == "":
+        await ctx.send("❌ **El estado no puede estar vacio.**")
         return
     
     try:
@@ -210,8 +250,8 @@ async def change_status(ctx, state: str, text: str):
             )
 
         embed = discord.Embed(
-                title=f"Estado actualizado a `{state}`\n",
-                description=f"{text}",
+                title=f"Estado y actividad actualizados: \n",
+                description=f"Actividad: `{state}` \n Estado: `{text}`",
                 color=discord.Color.purple(),
                 )
 
@@ -226,13 +266,13 @@ async def change_status(ctx, state: str, text: str):
             await log_command_usage("change_status", ctx.author.name, ctx.channel.name, False)
 
 @bot.command()
-async def tt_info(ctx, username: str = TIKTOK_USERNAME):
+async def tt_info(ctx, show_id: str = "", force_refresh: str = ""):
     try:
         async with ctx.typing():
-            profile_info = await get_user_profile_info_playwright(username) 
+            profile_info = await get_user_profile_info_rapidapi(TIKTOK_USERNAME, force_refresh=bool(force_refresh == "-f")) 
         
         if not profile_info:
-            await ctx.send(f"❌ No se pudo obtener la informacion de `@{username.lstrip('@')}`.")
+            await ctx.send(f"❌ No se pudo obtener la informacion de `@{TIKTOK_USERNAME.lstrip('@')}`.")
             return
 
         description_text = (
@@ -243,7 +283,12 @@ async def tt_info(ctx, username: str = TIKTOK_USERNAME):
             f"**Siguiendo:** `{profile_info['following']:,}`\n"
             f"**Me gusta:** `{profile_info['likes']:,}`\n"
             f"**Cantidad de videos:** `{profile_info['video_count']:,}`\n"
+            f"**Links en biografía:** `{profile_info['bio_link']}`\n"
+            f"**Cuenta privada:** `{profile_info['is_private']}`\n"
         )
+
+        if show_id == "-id":
+            description_text += f"**ID de usuario:** `{profile_info['sec_uid']}`\n"
 
         embed = discord.Embed(
             title=f"Información de perfil de @{profile_info['username']}",
