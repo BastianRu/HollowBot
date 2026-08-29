@@ -1,17 +1,20 @@
 import json
-import time
-import httpx
-from pathlib import Path
 import os
+import time
+from pathlib import Path
+
+import httpx
 from dotenv import load_dotenv
 
-load_dotenv() 
+from src.config import DATA_DIR, RAPIDAPI_KEY
 
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "NO_KEY_FOUND")
+load_dotenv()
+
 RAPIDAPI_HOST = "tiktok-api23.p.rapidapi.com"
+# Keep a small local cache to reduce repeated RapidAPI calls and avoid unnecessary hits.
+CACHE_FILE = DATA_DIR / "tiktok_cache.json"
+CACHE_TTL = 8 * 60 * 60
 
-CACHE_FILE = Path("src/data/tiktok_cache.json")
-CACHE_TTL = 8 * 60 * 60  # 8 hours in seconds
 
 def _load_cache() -> dict:
     if CACHE_FILE.exists():
@@ -22,6 +25,7 @@ def _load_cache() -> dict:
             return {}
     return {}
 
+
 def _save_cache(cache_data: dict):
     try:
         with open(CACHE_FILE, "w", encoding="utf-8") as f:
@@ -29,13 +33,13 @@ def _save_cache(cache_data: dict):
     except Exception as e:
         print(f"[Warn] could not save cache:: {e}")
 
+
 async def get_user_profile_info_rapidapi(username: str, force_refresh: bool = False) -> dict | None:
     clean_username = username.lstrip("@").lower()
     now = time.time()
-    
+
     _profile_cache = _load_cache()
 
-    # 1. Comprobar Caché Local (6 horas)
     if clean_username in _profile_cache:
         cached_item = _profile_cache[clean_username]
         data = cached_item.get("data")
@@ -48,12 +52,12 @@ async def get_user_profile_info_rapidapi(username: str, force_refresh: bool = Fa
 
     print(f"[RapidAPI] fetching @{clean_username}...")
     url = f"https://{RAPIDAPI_HOST}/api/user/info"
-    
+
     headers = {
         "x-rapidapi-key": RAPIDAPI_KEY,
-        "x-rapidapi-host": RAPIDAPI_HOST
+        "x-rapidapi-host": RAPIDAPI_HOST,
     }
-    
+
     params = {"uniqueId": clean_username}
 
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -74,13 +78,13 @@ async def get_user_profile_info_rapidapi(username: str, force_refresh: bool = Fa
                 return _profile_cache.get(clean_username, {}).get("data")
 
             result = {
-                "sec_uid": user.get("secUid", ""),            # unmutable ID
+                "sec_uid": user.get("secUid", ""),
                 "username": user.get("uniqueId", clean_username),
                 "nickname": user.get("nickname", clean_username),
                 "bio": user.get("signature", "Sin biografía."),
-                "bio_link": user.get("bioLink", {}).get("link", ""), # external link in bio
+                "bio_link": user.get("bioLink", {}).get("link", ""),
                 "verified": user.get("verified", False),
-                "is_private": user.get("privateAccount", False),     # private account
+                "is_private": user.get("privateAccount", False),
                 "avatar_url": user.get("avatarLarger") or user.get("avatarMedium") or user.get("avatarThumb", ""),
                 "followers": stats.get("followerCount", 0),
                 "following": stats.get("followingCount", 0),
@@ -88,10 +92,7 @@ async def get_user_profile_info_rapidapi(username: str, force_refresh: bool = Fa
                 "video_count": stats.get("videoCount", 0),
             }
 
-            _profile_cache[clean_username] = {
-                "data": result,
-                "timestamp": now
-            }
+            _profile_cache[clean_username] = {"data": result, "timestamp": now}
             _save_cache(_profile_cache)
 
             return result

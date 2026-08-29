@@ -4,10 +4,11 @@ import asyncio
 from dotenv import load_dotenv
 from src.chat_bridge import start_bridge
 from src.bot import start_bot
+from src.config import CURRENT_VER
 
 # command line args
 parser = argparse.ArgumentParser(
-    description="HollowBot ver. 0.0.3"
+    description=f"HollowBot ver. {CURRENT_VER}"
 )
 
 # command container (first argument) 
