@@ -37,6 +37,35 @@ async def init_db():
                     engagement_rate REAL DEFAULT 0.0,
                     average_likes_per_video REAL DEFAULT 0.0
                 );
+
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    due_date TEXT NOT NULL,
+                    estimated_hours REAL NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    parent_id INTEGER,
+                    is_subtask BOOLEAN DEFAULT 0,
+                    block_number INTEGER,
+                    total_blocks INTEGER,
+                    user_id TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS user_settings (
+                    user_id TEXT PRIMARY KEY,
+                    timezone TEXT NOT NULL DEFAULT 'America/Bogota',
+                    trench_days TEXT NOT NULL DEFAULT '[0, 2, 4]',
+                    deep_work_days TEXT NOT NULL DEFAULT '[1, 3]',
+                    w_trench REAL NOT NULL DEFAULT 0.2,
+                    w_deep REAL NOT NULL DEFAULT 1.5,
+                    w_weekend_default REAL NOT NULL DEFAULT 1.0,
+                    max_trench_hours REAL NOT NULL DEFAULT 1.5,
+                    block_size REAL NOT NULL DEFAULT 2.0,
+                    weekend_mode TEXT NOT NULL DEFAULT 'HARD_WORK_BALANCED',
+                    notification_channel_id INTEGER
+                );
             """)
             await db.commit()
     except Exception as e:
@@ -266,7 +295,57 @@ async def restart_table_bot_commands():
         print(f"Error restarting bot_commands table: {e}")
 
 
+async def reset_autotask_tables():
+    """Reset only AutoTask-related tables. Use this when task data is corrupted or stale."""
+    try:
+        script = """
+        DROP TABLE IF EXISTS tasks;
+        DROP TABLE IF EXISTS user_settings;
+
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            due_date TEXT NOT NULL,
+            estimated_hours REAL NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            status TEXT NOT NULL DEFAULT 'pending',
+            parent_id INTEGER,
+            is_subtask BOOLEAN DEFAULT 0,
+            block_number INTEGER,
+            total_blocks INTEGER,
+            user_id TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS user_settings (
+            user_id TEXT PRIMARY KEY,
+            timezone TEXT NOT NULL DEFAULT 'America/Bogota',
+            trench_days TEXT NOT NULL DEFAULT '[0, 2, 4]',
+            deep_work_days TEXT NOT NULL DEFAULT '[1, 3]',
+            w_trench REAL NOT NULL DEFAULT 0.2,
+            w_deep REAL NOT NULL DEFAULT 1.5,
+            w_weekend_default REAL NOT NULL DEFAULT 1.0,
+            max_trench_hours REAL NOT NULL DEFAULT 1.5,
+            block_size REAL NOT NULL DEFAULT 2.0,
+            weekend_mode TEXT NOT NULL DEFAULT 'HARD_WORK_BALANCED',
+            notification_channel_id INTEGER
+        );
+        """
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.executescript(script)
+            await db.commit()
+    except Exception as e:
+        print(f"Error resetting AutoTask tables: {e}")
+
+
+async def repair_database():
+    """Safe recovery helper for the most common SQLite drift scenarios."""
+    await reset_autotask_tables()
+    await restart_table_bot_commands()
+    await init_db()
+
+
 if __name__ == "__main__":
     import asyncio
 
-    asyncio.run(restart_table_bot_commands())
+    asyncio.run(repair_database())

@@ -10,3 +10,7 @@ __pycache__/
 *.sqlite3
 
 .db
+
+.autotask
+
+.pytest_cache

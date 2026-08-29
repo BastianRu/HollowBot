@@ -63,6 +63,10 @@ async def on_ready():
         monitor_system_usage.start()
 
 
+# Commands are handled by discord.py via @bot.command and @bot.group decorators.
+# We intentionally keep custom message interception out of the command flow to avoid
+# duplicate processing and to rely on the framework's prefix/command validation.
+
 # Collect daily TikTok and bot metrics once per day to keep the database useful without extra complexity.
 @tasks.loop(hours=23, minutes=59, seconds=59)
 async def update_metrics_loop():
