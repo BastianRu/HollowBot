@@ -56,13 +56,16 @@ def register_common_commands(bot):
             async with ctx.typing():
                 app_info = await bot.application_info()
 
-            command_list = "".join([f"- `{cmd.name}`: {cmd.brief} \n" for cmd in bot.commands])
+            command_list = "".join([f"- `{cmd.name}`: {cmd.brief if cmd.brief else 'Sin descripcion'} \n" if cmd.name != 'help' else '' for cmd in bot.commands])
+
             description_text = (
                 f"Fecha de inicio del desarrollo: `17 de Agosto de 2026` \n"
                 f"ID de la aplicacion: `{app_info.id}`\n"
                 f"Nombre de la app: `{app_info.name}`\n"
                 f"Prefijo de comando actual: `{bot.command_prefix}` \n\n"
                 f"Lista de comandos: \n {command_list}"
+                f"- `help`: Muestra la lista de comandos y sus descripciones. \n"
+
             )
 
             embed = discord.Embed(
@@ -134,4 +137,17 @@ def register_common_commands(bot):
             print(f"Failed at 'change_status': {e}")
             await log_command_usage("change_status", ctx.author.name, ctx.channel.name, False)
 
-    return ping, info, change_status
+    @bot.command(brief="Limpia los mensajes del canal actual (100 por defecto)")
+    async def clean_channel(ctx, limit: int = 100):
+        try:
+            async with ctx.typing():
+                deleted = await ctx.channel.purge(limit=limit)
+                await ctx.send(f"✅ Se eliminaron {len(deleted)} mensajes del canal (por defecto 100)")
+            await update_daily_bot_metrics(discord_commands_increment=1)
+            await log_command_usage("clean_channel", ctx.author.name, ctx.channel.name, True)
+        except Exception as e:
+            print(f"Failed at 'clean_channel': {e}")
+            await ctx.send("❌ Ocurrió un error al limpiar el canal. (Los mensajes anteriores a 14 dias no pueden ser eliminados por el bot)")
+            await log_command_usage("clean_channel", ctx.author.name, ctx.channel.name, False)
+
+    return ping, info, change_status, clean_channel

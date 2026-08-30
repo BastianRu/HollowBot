@@ -14,3 +14,5 @@ __pycache__/
 .autotask
 
 .pytest_cache
+
+bot_metrics.db

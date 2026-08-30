@@ -16,7 +16,17 @@ from src.monitoring.system import get_current_uptime_hours, get_daily_averages
 
 def register_metrics_commands(bot):
     # TikTok profile command: fetches public channel data and sends a formatted embed.
-    @bot.command()
+    @bot.command(brief="Muestra informacion del perfil de TikTok del canal",
+                 help="""Muestra informacion del perfil de TikTok del canal, incluyendo nombre de usuario, biografia,
+                    cantidad de seguidores, cantidad de videos, cantidad de likes y si la cuenta esta verificada o es privada.
+                    Por defecto, se refresca cada 8 horas.
+
+                    Parametros (banderas opcionales):
+                        - `-id`: Muestra el ID de usuario de TikTok en la respuesta.
+                        - `-f`: Fuerza la actualizacion de la informacion del perfil desde API.
+                        ALERTA: Este parametro se debe usar con precaucion, ya que depende de un servicio externo con limitaciones de uso y puede generar errores si se usa en exceso. Se recomienda usarlo solo cuando sea necesario.
+                    """
+                )
     async def tt_info(ctx, show_id: str = "", force_refresh: str = ""):
         try:
             async with ctx.typing():
@@ -37,8 +47,8 @@ def register_metrics_commands(bot):
                 f"**Siguiendo:** `{profile_info['following']:,}`\n"
                 f"**Me gusta:** `{profile_info['likes']:,}`\n"
                 f"**Cantidad de videos:** `{profile_info['video_count']:,}`\n"
-                f"**Links en biografía:** `{profile_info['bio_link']}`\n"
-                f"**Cuenta privada:** `{profile_info['is_private']}`\n"
+                f"**Links en biografía:** {profile_info['bio_link']}\n"
+                f"**Cuenta privada:** `{'Si' if profile_info['is_private'] else 'No'}`\n"
             )
 
             if show_id == "-id":
@@ -61,7 +71,17 @@ def register_metrics_commands(bot):
             print(f"Failed at 'tt_info': {e}")
             await log_command_usage("tt_info", ctx.author.name, ctx.channel.name, False)
 
-    @bot.command()
+    @bot.command(brief="Muestra metricas diarias del canal de TikTok",
+                help="""Muestra metricas diarias del canal de TikTok, incluyendo cantidad de likes totales, nuevos seguidores,
+                    tasa de engagement y promedio de likes por video. Por defecto, se muestran las metricas del dia actual.
+
+                    Parametros:
+                        - `mm-dd`: Muestra las metricas del canal para la fecha especificada en formato mes-dia (ejemplo: 03-15 para el 15 de marzo del año actual).
+                        - `dd`: Muestra las metricas del canal para el dia especificado en
+                            formato dia (ejemplo: 15 para el 15 del mes actual).
+                        Si no se especifica ninguna fecha, se muestran las metricas del dia actual.    
+                    """
+                )
     async def channel_metrics(ctx, date: str | None = None):
         current_year = datetime.now().year
         current_month = datetime.now().month
@@ -106,7 +126,16 @@ def register_metrics_commands(bot):
             print(f"Failed at 'channel_metrics': {e}")
             await log_command_usage("channel_metrics", ctx.author.name, ctx.channel.name, False)
 
-    @bot.command()
+    @bot.command(brief="Muestra metricas diarias del bot", 
+                 help="""Muestra metricas diarias del bot, incluyendo cantidad de comandos ejecutados, uso de CPU y RAM, y horas de actividad.
+
+                 Parametros:
+                        - `mm-dd`: Muestra las metricas del bot para la fecha especificada en formato mes-dia (ejemplo: 03-15 para el 15 de marzo del año actual).
+                        - `dd`: Muestra las metricas del bot para el dia especificado en
+                            formato dia (ejemplo: 15 para el 15 del mes actual).
+                    Si no se especifica ninguna fecha, se muestran las metricas del dia actual
+                 """
+                 )
     async def bot_metrics(ctx, date: str | None = None):
         current_year = datetime.now().year
         current_month = datetime.now().month
@@ -153,7 +182,15 @@ def register_metrics_commands(bot):
             print(f"Failed at 'bot_metrics': {e}")
             await log_command_usage("bot_metrics", ctx.author.name, ctx.channel.name, False)
 
-    @bot.command()
+    @bot.command(brief="Muestra los registros de comandos ejecutados por el bot",
+                help="""Muestra los registros de comandos ejecutados por el bot, incluyendo el comando ejecutado, el usuario que lo ejecuto, el canal donde se ejecuto y si fue exitoso o no.
+                Parametros:
+                    - `mm-dd`: Muestra los registros de comandos para la fecha especificada en formato mes-dia (ejemplo: 03-15 para el 15 de marzo del año actual).
+                    - `dd`: Muestra los registros de comandos para el dia especificado en
+                        formato dia (ejemplo: 15 para el 15 del mes actual).
+                Si no se especifica ninguna fecha, se muestran los registros de comandos del dia actual.
+                """
+                 )
     async def bot_command_log(ctx, date: str | None = None):
         current_year = datetime.now().year
         current_month = datetime.now().month

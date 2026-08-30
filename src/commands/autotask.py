@@ -1,5 +1,5 @@
 import logging
-
+from src.infrastructure.database import update_daily_bot_metrics, log_command_usage
 from src.infrastructure.repositories.autotask_repository import (
     create_task,
     get_pending_tasks,
@@ -150,7 +150,7 @@ def _detect_critical_overload(scored_tasks: list) -> list:
 
 
 def register_autotask_commands(bot):
-    @bot.group(name="autotask")
+    @bot.group(name="autotask", aliases=["at"], brief="Modulo de gestion automatica de tareas por orden de prioridad")
     async def autotask_group(ctx):
         if ctx.invoked_subcommand is None:
             await ctx.send(
@@ -193,6 +193,8 @@ def register_autotask_commands(bot):
         for key, value in active_settings.items():
             response += f"• {key}: {_format_settings_value(key, value)}\n"
         await ctx.send(response)
+        await update_daily_bot_metrics(discord_commands_increment=1)
+        await log_command_usage("autotask_setup", ctx.author.name, ctx.channel.name, True)
 
     @autotask_group.command(name="config")
     async def config_autotask(ctx, key: str = None, value: str = None):
@@ -217,6 +219,8 @@ def register_autotask_commands(bot):
         await ctx.send(
             f"✅ Parámetro actualizado: `{key}` = {_format_settings_value(key.lower(), updated_value)}"
         )
+        await update_daily_bot_metrics(discord_commands_increment=1)
+        await log_command_usage("autotask_config", ctx.author.name, ctx.channel.name, True)
 
     @autotask_group.command(name="add_task")
     async def add_task_command(ctx, *, task_text: str):
@@ -229,6 +233,8 @@ def register_autotask_commands(bot):
                 response = _build_task_response(task_input, str(ctx.author.id))
                 print(f"Task added for user {ctx.author.id}: {task_input}")
                 await ctx.send(response)
+                await update_daily_bot_metrics(discord_commands_increment=1)
+                await log_command_usage("autotask_add_task", ctx.author.name, ctx.channel.name, True)
             except ValueError as exc:
                 await ctx.send(
                     f"❌ Error parseando tarea:\n{exc}\n\n"
@@ -237,11 +243,15 @@ def register_autotask_commands(bot):
                     "**Ejemplo:**\n"
                     "`hw autotask add_task OS | Ver documental | mañana | 2`"
                 )
+                
             except Exception as exc:  # pragma: no cover - defensive guard for runtime DB issues
                 logger.exception("Unhandled AutoTask add_task failure for user=%s", ctx.author.id)
                 await ctx.send(
                     "❌ Ocurrió un error al procesar la tarea. Intenta de nuevo o usa `hw autotask repair` si la base de datos quedó corrupta."
                 )
+                await update_daily_bot_metrics(discord_commands_increment=1)
+                await log_command_usage("autotask_add_task", ctx.author.name, ctx.channel.name, False)
+
 
     @autotask_group.command(name="tasks")
     async def list_tasks(ctx):
@@ -265,6 +275,8 @@ def register_autotask_commands(bot):
                     )
 
                 await ctx.send(response)
+                await update_daily_bot_metrics(discord_commands_increment=1)
+                await log_command_usage("autotask_tasks", ctx.author.name, ctx.channel.name, True)
             except Exception:
                 logger.exception("Unhandled AutoTask tasks failure for user=%s", ctx.author.id)
                 await ctx.send("❌ No pude cargar tus tareas. Reintenta en unos segundos.")
@@ -322,9 +334,13 @@ def register_autotask_commands(bot):
                     )
 
                 await ctx.send(response)
+                await update_daily_bot_metrics(discord_commands_increment=1)
+                await log_command_usage("autotask_top3", ctx.author.name, ctx.channel.name, True)
             except Exception:
                 logger.exception("Unhandled AutoTask top3 failure for user=%s", ctx.author.id)
                 await ctx.send("❌ No pude calcular el ranking. Reintenta en unos segundos.")
+                await update_daily_bot_metrics(discord_commands_increment=1)
+                await log_command_usage("autotask_top3", ctx.author.name, ctx.channel.name, False)
 
     @autotask_group.command(name="complete")
     async def complete_task(ctx, position: int):
@@ -347,10 +363,17 @@ def register_autotask_commands(bot):
 
                 if success:
                     await ctx.send(f"✅ Completada: [{task['subject']}] {task['title']}")
+                    await update_daily_bot_metrics(discord_commands_increment=1)
+                    await log_command_usage("autotask_complete", ctx.author.name, ctx.channel.name, True)
                 else:
                     await ctx.send(f"❌ No se pudo completar la posición {position}.")
+                    await update_daily_bot_metrics(discord_commands_increment=1)
+                    await log_command_usage("autotask_complete", ctx.author.name, ctx.channel.name, False)
+
             except Exception:
                 logger.exception("Unhandled AutoTask complete failure for user=%s", ctx.author.id)
                 await ctx.send("❌ No pude completar la tarea. Reintenta en unos segundos.")
+                await update_daily_bot_metrics(discord_commands_increment=1)
+                await log_command_usage("autotask_complete", ctx.author.name, ctx.channel.name, False)
 
     return autotask_group
