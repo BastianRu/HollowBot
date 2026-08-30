@@ -15,4 +15,6 @@ __pycache__/
 
 .pytest_cache
 
+*.sqlite3
+*.db
 bot_metrics.db
