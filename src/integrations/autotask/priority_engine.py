@@ -33,6 +33,10 @@ UNIVERSITY_KEYWORDS = {
     "carrera",
     "materia",
     "curso",
+    "os",
+    "lab. os",
+    "ing. software",
+    "estadistica",
 }
 
 
@@ -91,7 +95,7 @@ def get_target_day(user_settings: dict = None):
     return target_weekday, tomorrow.strftime("%Y-%m-%d")
 
 
-def get_effort_weight(target_day_weekday: int, task: dict = None, weekend_university_pending: bool = False, user_settings: dict = None) -> float:
+def get_effort_weight(target_day_weekday: int, task: dict = None, weekend_university_pending: bool = False, user_settings: dict = None, days_remaining: int = None) -> float:
     """Calculate effort weight for a given day.
     
     Respects weekend modes:
@@ -100,6 +104,10 @@ def get_effort_weight(target_day_weekday: int, task: dict = None, weekend_univer
     - HARD_WORK_BALANCED: W=1.2 if university pending, W=1.5 otherwise (personal projects)
     
     Deep work days get high weight (1.5), trench days get low weight (0.2).
+    
+    URGENCY OVERRIDE: University tasks due within 2 days take priority and use full
+    deep work weight (1.5) even if it displaces personal projects, as academic deadlines
+    are critical and non-negotiable.
     """
     settings = user_settings or DEFAULT_USER_SETTINGS or {}
     trench_days = set(settings.get("trench_days", [0, 2, 4]))
@@ -110,7 +118,15 @@ def get_effort_weight(target_day_weekday: int, task: dict = None, weekend_univer
     w_weekend_default = float(settings.get("w_weekend_default", 1.0))
     weekend_mode = str(settings.get("weekend_mode", "HARD_WORK_BALANCED")).upper()
 
-    # Deep work days have highest priority
+    # URGENCY OVERRIDE: University tasks due within 2 days get full deep work weight
+    # This prioritizes critical academic deadlines over personal projects
+    if (task and 
+        is_university_task(task) and 
+        days_remaining is not None and 
+        days_remaining < 2):
+        return w_deep
+    
+    # Deep work days have highest priority (for personal projects when no urgent university tasks)
     if target_day_weekday in deep_work_days:
         return w_deep
     
@@ -166,6 +182,7 @@ def calculate_priority(due_date: str, estimated_hours: float, target_day_weekday
         task=task,
         weekend_university_pending=weekend_university_pending,
         user_settings=user_settings,
+        days_remaining=days_remaining,
     )
 
     days_factor = max(days_remaining, 0)
@@ -230,7 +247,7 @@ def has_pending_university_tasks(tasks: list, evaluation_date: str = None, user_
 
 def score_single_task(task: dict, evaluation_date: str = None, user_settings: dict = None):
     settings = user_settings or DEFAULT_USER_SETTINGS or {}
-    target_day_weekday, _ = get_target_day(settings)
+    target_day_weekday, target_date_str = get_target_day(settings)
     weekend_university_pending = has_pending_university_tasks([task], evaluation_date, user_settings=settings)
     score = calculate_priority(
         task["due_date"],
@@ -242,11 +259,21 @@ def score_single_task(task: dict, evaluation_date: str = None, user_settings: di
         user_settings=settings,
     )
 
+    # Only penalize non-feasible trench tasks if they are NOT urgent university tasks
     if target_day_weekday in set(settings.get("trench_days", [0, 2, 4])):
         if not is_feasible_for_trenches(task["estimated_hours"], settings):
-            # CRITICAL: Severe penalty for non-feasible trench tasks (multiplier 0.01 to block assignment)
-            # Tasks >max_trench_hours should not be assigned to trench days
-            score *= 0.01
+            # Check if task is urgent university task (< 2 days)
+            days_remaining = get_days_remaining(
+                task["due_date"],
+                evaluation_date=target_date_str,
+                timezone=settings.get("timezone", "America/Bogota"),
+            )
+            is_urgent_university = (is_university_task(task) and days_remaining < 2)
+            
+            # Only apply penalty if NOT urgent university task
+            # Urgent academic deadlines override trench day constraints
+            if not is_urgent_university:
+                score *= 0.01
 
     return score
 
@@ -280,10 +307,22 @@ def score_tasks(tasks: list, evaluation_date: str = None, user_settings: dict = 
             user_settings=settings,
         )
 
+        # Only penalize non-feasible trench tasks if they are NOT urgent university tasks
         if target_day_weekday in trench_days:
             if not is_feasible_for_trenches(task["estimated_hours"], settings):
-                # CRITICAL: Severe penalty for non-feasible trench tasks to effectively block assignment
-                score *= 0.01
+                # Check if task is urgent university task (< 2 days)
+                _, target_date_str = get_target_day(settings)
+                days_remaining = get_days_remaining(
+                    task["due_date"],
+                    evaluation_date=target_date_str,
+                    timezone=settings.get("timezone", "America/Bogota"),
+                )
+                is_urgent_university = (is_university_task(task) and days_remaining < 2)
+                
+                # Only apply penalty if NOT urgent university task
+                # Urgent academic deadlines override trench day constraints
+                if not is_urgent_university:
+                    score *= 0.01
 
         scored_tasks.append((task, score))
 
